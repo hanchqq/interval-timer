@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>インターバルタイマー</title>
+<style>
+  @font-face {
+    font-family: 'DSeg';
+    src: local('Courier New');
+  }
+  :root{
+    --bg: #101215;
+    --panel: #16191d;
+    --line: #262b31;
+    --text: #e8e6df;
+    --text-dim: #6b7178;
+    --short: #ffb648;   /* phase 1 */
+    --long: #59c3c9;    /* phase 2 */
+    --third: #b58aff;   /* phase 3 (optional) */
+    --stopped: #7a7f86;
+  }
+  *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html,body{
+    margin:0; padding:0;
+    height: 100vh;
+    height: 100dvh;
+    width: 100vw;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', ui-monospace, monospace;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+  }
+  .rig{
+    width: min(92vw, 800px);
+    display:flex; flex-direction:column; align-items:center;
+    gap: clamp(24px, 4vh, 40px);
+    padding: 20px;
+  }
+  .eyebrow{
+    letter-spacing: 0.35em;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    text-align: center;
+  }
+  .stage{
+    position:relative;
+    width: clamp(325px, 50vmin, 575px);
+    height: clamp(325px, 50vmin, 575px);
+    display:flex; align-items:center; justify-content:center;
+    container-type: inline-size;
+  }
+  svg{ position:absolute; inset:0; width:100%; height:100%; transform: rotate(-90deg); }
+  .track{ fill:none; stroke: var(--line); stroke-width: 3; }
+  .prog{
+    fill:none; stroke-width: 3;
+    stroke-linecap: butt;
+    transition: stroke-dashoffset 0.18s linear, stroke 0.3s ease;
+  }
+  .core{
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    z-index:1;
+  }
+  .time{
+    font-size: clamp(65px, 11.25vmin, 120px);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    line-height:1;
+    transition: color 0.3s ease;
+  }
+  .phase-label{
+    display: none;
+  }
+  .phase-label b{
+    color: inherit;
+    font-weight: 700;
+  }
+  .status-row{
+    display:flex; flex-direction:column; align-items:center; gap: 14px;
+  }
+  .badge{
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--text-dim);
+    transition: all 0.25s ease;
+  }
+  .badge.running{
+    color: var(--bg);
+    border-color: transparent;
+  }
+  .hint{
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+  }
+  .hint kbd{
+    display:inline-block;
+    padding: 2px 10px;
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    background: var(--panel);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 11px;
+    margin: 0 2px;
+  }
+  .cycle-count{
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.15em;
+  }
+  .settings{
+    display:flex; flex-wrap: wrap; gap: 22px;
+    padding-top: 6px;
+    border-top: 1px solid var(--line);
+    width: 100%;
+    justify-content: center;
+  }
+  .setting{
+    display:flex; flex-direction:column; align-items:center; gap: 6px;
+  }
+  .setting label{
+    font-size: 10px;
+    letter-spacing: 0.25em;
+    color: var(--text-dim);
+  }
+  .setting input[type="number"]{
+    width: 72px;
+    text-align:center;
+    font-family: inherit;
+    font-size: 15px;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 4px;
+    font-variant-numeric: tabular-nums;
+    color-scheme: dark;
+  }
+  .setting input:focus{
+    outline: none;
+    border-color: var(--text-dim);
+  }
+  .setting input:disabled{
+    opacity: 0.4;
+  }
+  #shortInput{ accent-color: var(--short); }
+  #longInput{ accent-color: var(--long); }
+  #thirdInput{ accent-color: var(--third); }
+
+  .third-row{
+    display:flex; align-items:center; gap: 6px;
+  }
+  .third-toggle{
+    width: 40px; height: 24px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    position: relative;
+    cursor: pointer;
+    padding: 0;
+    flex: none;
+  }
+  .third-toggle::after{
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: left 0.18s ease, background 0.18s ease;
+  }
+  .third-toggle.on{
+    border-color: var(--third);
+  }
+  .third-toggle.on::after{
+    left: 18px;
+    background: var(--third);
+  }
+  .third-toggle:disabled{ opacity: 0.4; cursor: default; }
+
+  .key-btn{
+    width: 96px;
+    text-align:center;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 4px;
+    cursor: pointer;
+  }
+  .key-btn:hover{ border-color: var(--text-dim); }
+  .key-btn:disabled{ opacity: 0.4; cursor: default; }
+  .key-btn.listening{
+    color: var(--short);
+    border-color: var(--short);
+  }
+
+  #volumeInput{
+    width: 110px;
+    accent-color: var(--text-dim);
+  }
+
+  /* --- Mobile / touch: fit the full screen, tap-to-control hint --- */
+  .tap-hint{ display:none; }
+  @media (pointer: coarse){
+    .rig{
+      width: 100vw;
+      height: 100dvh;
+      justify-content: center;
+      gap: clamp(14px, 3.2vh, 28px);
+      padding: clamp(10px, 3vh, 20px);
+    }
+    .stage{
+      width: clamp(130px, 62vmin, 320px);
+      height: clamp(130px, 62vmin, 320px);
+    }
+    .time{ font-size: clamp(14px, 15cqw, 120px); }
+    .eyebrow{ font-size: 10px; }
+    .settings{ gap: 16px; }
+    .space-hint{ display:none; }
+    .tap-hint{ display:block; }
+  }
+</style>
+</head>
+<body>
+
+<div class="rig">
+  <div class="eyebrow" id="eyebrow">INTERVAL &nbsp;·&nbsp; 30s / 60s ALTERNATING</div>
+
+  <div class="stage">
+    <svg viewBox="0 0 300 300">
+      <circle class="track" cx="150" cy="150" r="138"></circle>
+      <circle id="prog" class="prog" cx="150" cy="150" r="138"></circle>
+    </svg>
+    <div class="core">
+      <div class="time" id="time">00:30</div>
+      <div class="phase-label" id="phaseLabel">SHORT</div>
+    </div>
+  </div>
+
+  <div class="status-row">
+    <div class="badge" id="badge">SPACE で開始</div>
+    <div class="hint space-hint"><kbd id="keyHintLabel">SPACE</kbd> 停止 / 次のタイマー開始</div>
+    <div class="hint tap-hint">画面をタップして 停止 / 次のタイマー開始</div>
+    <div class="cycle-count" id="cycleCount">ラウンド 1</div>
+  </div>
+
+  <div class="settings">
+    <div class="setting">
+      <label for="shortInput">1st (秒)</label>
+      <input type="number" id="shortInput" min="1" max="3600" value="30">
+    </div>
+    <div class="setting">
+      <label for="longInput">2nd (秒)</label>
+      <input type="number" id="longInput" min="1" max="3600" value="60">
+    </div>
+    <div class="setting">
+      <label for="thirdInput">3rd (分)</label>
+      <div class="third-row">
+        <input type="number" id="thirdInput" min="1" max="60" value="5" disabled>
+        <button type="button" id="thirdToggleBtn" class="third-toggle" aria-pressed="false" title="THIRDタイマーを使う"></button>
+      </div>
+    </div>
+    <div class="setting">
+      <label for="keyChangeBtn">操作キー</label>
+      <button type="button" id="keyChangeBtn" class="key-btn">SPACE</button>
+    </div>
+    <div class="setting">
+      <label for="volumeInput">音量</label>
+      <input type="range" id="volumeInput" min="0" max="100" value="70">
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  let SHORT = 30;
+  let LONG = 60;
+  let THIRD = 300;
+  let thirdEnabled = false;
+  let controlKey = 'Space';
+  let controlKeyLabel = 'SPACE';
+  let volume = 70;
+
+  const STORAGE_KEY = 'intervalTimerSettings';
+  try{
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    if(saved && Number.isFinite(saved.short) && Number.isFinite(saved.long)){
+      SHORT = Math.min(3600, Math.max(1, saved.short));
+      LONG = Math.min(3600, Math.max(1, saved.long));
+    }
+    if(saved && Number.isFinite(saved.third)){
+      THIRD = Math.min(3600, Math.max(1, saved.third));
+    }
+    if(saved && typeof saved.thirdEnabled === 'boolean'){
+      thirdEnabled = saved.thirdEnabled;
+    }
+    if(saved && typeof saved.key === 'string' && saved.key){
+      controlKey = saved.key;
+    }
+    if(saved && Number.isFinite(saved.volume)){
+      volume = Math.min(100, Math.max(0, saved.volume));
+    }
+  }catch(e){ /* localStorage unavailable — fall back to defaults */ }
+
+  const timeEl = document.getElementById('time');
+  const phaseLabelEl = document.getElementById('phaseLabel');
+  const badgeEl = document.getElementById('badge');
+  const progEl = document.getElementById('prog');
+  const cycleCountEl = document.getElementById('cycleCount');
+  const eyebrowEl = document.getElementById('eyebrow');
+  const rigEl = document.querySelector('.rig');
+  const keyHintLabelEl = document.getElementById('keyHintLabel');
+
+  const isTouch = window.matchMedia('(pointer: coarse)').matches;
+
+  const R = 138;
+  const CIRC = 2 * Math.PI * R;
+  progEl.style.strokeDasharray = CIRC;
+  progEl.style.strokeDashoffset = 0;
+
+  const ORDER = ['short', 'long', 'third'];
+
+  // state: 'idle' | 'running' | 'stopped'
+  let state = 'idle';
+  let currentKey = 'short'; // current/next phase key
+  let remaining = SHORT;
+  let duration = SHORT;
+  let round = 1;
+  let rafId = null;
+  let lastTs = null;
+
+  function getCss(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+  const COLORS = { short: getCss('--short'), long: getCss('--long'), third: getCss('--third'), stopped: getCss('--stopped') };
+
+  function getDuration(key){
+    if(key === 'short') return SHORT;
+    if(key === 'long') return LONG;
+    return THIRD;
+  }
+  function isEnabled(key){
+    if(key === 'third') return thirdEnabled;
+    return true;
+  }
+  function nextKey(key){
+    const idx = ORDER.indexOf(key);
+    for(let i = 1; i <= ORDER.length; i++){
+      const k = ORDER[(idx + i) % ORDER.length];
+      if(isEnabled(k)) return k;
+    }
+    return key;
+  }
+
+  function keyLabelFromCode(code){
+    if(code === 'Space') return 'SPACE';
+    if(code === 'Enter') return 'ENTER';
+    if(code === 'Tab') return 'TAB';
+    if(code === 'Escape') return 'ESC';
+    if(code === 'ArrowUp') return '↑';
+    if(code === 'ArrowDown') return '↓';
+    if(code === 'ArrowLeft') return '←';
+    if(code === 'ArrowRight') return '→';
+    if(code.startsWith('Key')) return code.slice(3);
+    if(code.startsWith('Digit')) return code.slice(5);
+    return code.toUpperCase();
+  }
+  controlKeyLabel = keyLabelFromCode(controlKey);
+
+  let audioCtx = null;
+  function ensureAudioCtx(){
+    if(!audioCtx){
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if(!Ctx) return null;
+      audioCtx = new Ctx();
+    }
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+  function playAlarm(){
+    if(volume <= 0) return;
+    const ctx = ensureAudioCtx();
+    if(!ctx) return;
+    const peak = (volume / 100) * 0.175;
+    let t = ctx.currentTime;
+    for(let i = 0; i < 3; i++){
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 1000;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(peak, t + 0.01);
+      gain.gain.linearRampToValueAtTime(0, t + 0.11);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.12);
+      t += 0.16;
+    }
+  }
+
+  function fmt(s){
+    s = Math.max(0, Math.ceil(s));
+    const m = Math.floor(s/60);
+    const sec = s % 60;
+    return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+  }
+
+  function render(){
+    timeEl.textContent = fmt(remaining);
+    const frac = remaining / duration;
+    progEl.style.strokeDashoffset = CIRC * (1 - frac);
+    updateSettingsLock();
+
+    const color = state === 'stopped' ? COLORS.stopped : COLORS[currentKey];
+    progEl.style.stroke = color;
+    timeEl.style.color = color;
+
+    phaseLabelEl.textContent = currentKey.toUpperCase();
+
+    cycleCountEl.textContent = 'ラウンド ' + round;
+    const parts = [SHORT + 's', LONG + 's'];
+    if(thirdEnabled) parts.push(Math.round(THIRD / 60) + 'm');
+    eyebrowEl.textContent = 'INTERVAL  ·  ' + parts.join(' / ') + ' ALTERNATING';
+    keyHintLabelEl.textContent = controlKeyLabel;
+
+    if(state === 'running'){
+      badgeEl.textContent = '実行中';
+      badgeEl.classList.add('running');
+      badgeEl.style.background = color;
+      badgeEl.style.borderColor = color;
+    } else if(state === 'stopped'){
+      badgeEl.textContent = isTouch ? 'タップで次のタイマー開始' : (controlKeyLabel + ' で次のタイマー開始');
+      badgeEl.classList.remove('running');
+      badgeEl.style.background = 'transparent';
+      badgeEl.style.borderColor = '';
+    } else {
+      badgeEl.textContent = isTouch ? 'タップで開始' : (controlKeyLabel + ' で開始');
+      badgeEl.classList.remove('running');
+      badgeEl.style.background = 'transparent';
+      badgeEl.style.borderColor = '';
+    }
+  }
+
+  function tick(ts){
+    if(lastTs === null) lastTs = ts;
+    const dt = (ts - lastTs) / 1000;
+    lastTs = ts;
+
+    remaining -= dt;
+    if(remaining <= 0){
+      playAlarm();
+      advancePhase();
+      render();
+      rafId = requestAnimationFrame(tick);
+      return;
+    }
+    render();
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function advancePhase(){
+    // phase finished naturally -> move to next phase and keep running
+    currentKey = nextKey(currentKey);
+    duration = getDuration(currentKey);
+    remaining = duration;
+    round += 1;
+  }
+
+  function startRun(){
+    state = 'running';
+    lastTs = null;
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function stopRun(){
+    state = 'stopped';
+    if(rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+
+  function beginNextTimer(){
+    // called on 2nd press: move to the next phase and start it
+    currentKey = nextKey(currentKey);
+    duration = getDuration(currentKey);
+    remaining = duration;
+    round += 1;
+    startRun();
+  }
+
+  function handleSpace(){
+    ensureAudioCtx();
+    if(state === 'idle'){
+      // first ever start
+      currentKey = 'short';
+      duration = SHORT;
+      remaining = SHORT;
+      round = 1;
+      startRun();
+    } else if(state === 'running'){
+      stopRun();
+    } else if(state === 'stopped'){
+      beginNextTimer();
+    }
+    render();
+  }
+
+  let listeningForKey = false;
+  const keyChangeBtn = document.getElementById('keyChangeBtn');
+  keyChangeBtn.textContent = controlKeyLabel;
+
+  keyChangeBtn.addEventListener('click', function(){
+    if(state === 'running') return; // avoid reassigning mid-run
+    listeningForKey = true;
+    keyChangeBtn.textContent = 'キーを押して…';
+    keyChangeBtn.classList.add('listening');
+    keyChangeBtn.blur();
+  });
+
+  window.addEventListener('keydown', function(e){
+    if(listeningForKey){
+      e.preventDefault();
+      if(e.code !== 'Escape'){
+        controlKey = e.code;
+        controlKeyLabel = keyLabelFromCode(e.code);
+        saveSettings();
+      }
+      listeningForKey = false;
+      keyChangeBtn.classList.remove('listening');
+      keyChangeBtn.textContent = controlKeyLabel;
+      render();
+      return;
+    }
+    if(document.activeElement && document.activeElement.tagName === 'INPUT') return;
+    if(e.code === controlKey){
+      e.preventDefault();
+      handleSpace();
+    }
+  });
+
+  if(isTouch){
+    rigEl.addEventListener('click', function(e){
+      if(e.target.closest('.settings')) return; // don't trigger when adjusting settings
+      handleSpace();
+    });
+  }
+
+  const shortInput = document.getElementById('shortInput');
+  const longInput = document.getElementById('longInput');
+  const thirdInput = document.getElementById('thirdInput');
+  const thirdToggleBtn = document.getElementById('thirdToggleBtn');
+  shortInput.value = SHORT;
+  longInput.value = LONG;
+  thirdInput.value = Math.max(1, Math.round(THIRD / 60));
+  thirdInput.disabled = !thirdEnabled;
+  if(thirdEnabled){
+    thirdToggleBtn.classList.add('on');
+    thirdToggleBtn.setAttribute('aria-pressed', 'true');
+  }
+
+  function clampVal(v){
+    v = parseInt(v, 10);
+    if(isNaN(v)) v = 1;
+    return Math.min(3600, Math.max(1, v));
+  }
+  function clampMinutes(v){
+    v = parseInt(v, 10);
+    if(isNaN(v)) v = 1;
+    return Math.min(60, Math.max(1, v));
+  }
+
+  function saveSettings(){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        short: SHORT, long: LONG, third: THIRD, thirdEnabled: thirdEnabled,
+        key: controlKey, volume: volume
+      }));
+    }catch(e){ /* storage unavailable — silently skip */ }
+  }
+
+  shortInput.addEventListener('change', function(){
+    SHORT = clampVal(shortInput.value);
+    shortInput.value = SHORT;
+    if(state === 'idle' && currentKey === 'short'){
+      duration = SHORT;
+      remaining = SHORT;
+    }
+    saveSettings();
+    render();
+  });
+
+  longInput.addEventListener('change', function(){
+    LONG = clampVal(longInput.value);
+    longInput.value = LONG;
+    if(state === 'idle' && currentKey === 'long'){
+      duration = LONG;
+      remaining = LONG;
+    }
+    saveSettings();
+    render();
+  });
+
+  thirdInput.addEventListener('change', function(){
+    const minutes = clampMinutes(thirdInput.value);
+    thirdInput.value = minutes;
+    THIRD = minutes * 60;
+    if(state === 'idle' && currentKey === 'third'){
+      duration = THIRD;
+      remaining = THIRD;
+    }
+    saveSettings();
+    render();
+  });
+
+  thirdToggleBtn.addEventListener('click', function(){
+    if(state === 'running') return;
+    thirdEnabled = !thirdEnabled;
+    thirdToggleBtn.classList.toggle('on', thirdEnabled);
+    thirdToggleBtn.setAttribute('aria-pressed', String(thirdEnabled));
+    thirdInput.disabled = !thirdEnabled;
+    if(!thirdEnabled && currentKey === 'third'){
+      currentKey = 'short';
+      if(state === 'idle'){
+        duration = SHORT;
+        remaining = SHORT;
+      }
+    }
+    saveSettings();
+    render();
+  });
+
+  const volumeInput = document.getElementById('volumeInput');
+  volumeInput.value = volume;
+
+  volumeInput.addEventListener('input', function(){
+    volume = Math.min(100, Math.max(0, parseInt(volumeInput.value, 10) || 0));
+  });
+  volumeInput.addEventListener('change', function(){
+    saveSettings();
+    ensureAudioCtx();
+    playAlarm();
+  });
+
+  function updateSettingsLock(){
+    const locked = (state === 'running');
+    shortInput.disabled = locked;
+    longInput.disabled = locked;
+    thirdInput.disabled = locked || !thirdEnabled;
+    thirdToggleBtn.disabled = locked;
+    keyChangeBtn.disabled = locked;
+  }
+
+  render();
+})();
+</script>
+
+</body>
+</html>
